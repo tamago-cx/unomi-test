@@ -1,0 +1,64 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.1.3
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - 9200:9200
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  es-init:
+    image: curlimages/curl:8.9.1
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    command:
+      [
+        "sh",
+        "-c",
+        "curl -sS -X PUT http://elasticsearch:9200/_all/_settings -H 'Content-Type: application/json' -d '{\"index.number_of_replicas\":0}'"
+      ]
+    restart: "no"
+
+  unomi:
+    image: apache/unomi:3.0.0
+    environment:
+      - UNOMI_ELASTICSEARCH_ADDRESSES=elasticsearch:9200
+      - UNOMI_THIRDPARTY_PROVIDER1_IPADDRESSES=0.0.0.0/0,::1,127.0.0.1
+    ports:
+      - 8181:8181
+      - 9443:9443
+      - 8102:8102
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/cxs/context.json?sessionId=healthcheck"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      es-init:
+        condition: service_completed_successfully
+
+  unomi-studio:
+    image: grootan/unomi-studio:1.0.1
+    environment:
+      - UNOMI_HOST=http://unomi:8181
+      - UNOMI_USERNAME=karaf
+      - UNOMI_PASSWORD=karaf
+      - ELASTIC_HOST=http://elasticsearch:9200
+    ports:
+      - 8085:8085
+      - 8445:8445
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      unomi:
+        condition: service_healthy
